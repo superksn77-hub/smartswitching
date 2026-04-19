@@ -16,6 +16,8 @@
 (function () {
   'use strict';
 
+  console.log('[DeviceAuth] 로드됨 — v9 (smartswitch, 우선순위 매칭)');
+
   // ══════════════════════════════════════════════════════════════════════
   // Firebase 설정 (hearingaid와 동일 프로젝트)
   // ══════════════════════════════════════════════════════════════════════
@@ -195,6 +197,39 @@
     return out;
   }
 
+  // 가로/세로 바뀐 해시 (모바일 기기 회전 대응)
+  function buildHardwareSignalsSwapped(versionTag) {
+    const cpu      = navigator.hardwareConcurrency || 0;
+    const ram      = navigator.deviceMemory || 0;
+    const platform = navigator.platform || '';
+    const sw       = typeof screen !== 'undefined' ? screen.height : 0; // 스왑
+    const sh       = typeof screen !== 'undefined' ? screen.width  : 0; // 스왑
+    const sd       = typeof screen !== 'undefined' ? screen.colorDepth : 0;
+    let   tz       = '';
+    try { tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (_) {}
+    const touch    = navigator.maxTouchPoints || 0;
+    return [versionTag, cpu, ram, platform, sw, sh, sd, tz, touch].join('|');
+  }
+
+  async function getAllCandidateHashes() {
+    // 현재 + 레거시 + 스왑(가로/세로 반전) 모든 조합의 해시를 반환
+    const hashes = [];
+    const versions = [HW_VERSION].concat(LEGACY_HW_VERSIONS);
+    for (let i = 0; i < versions.length; i++) {
+      const v = versions[i];
+      try {
+        const h1 = await sha256(buildHardwareSignals(v));
+        hashes.push(h1.substring(0, 32));
+      } catch (_) {}
+      try {
+        const h2 = await sha256(buildHardwareSignalsSwapped(v));
+        hashes.push(h2.substring(0, 32));
+      } catch (_) {}
+    }
+    // 중복 제거
+    return hashes.filter(function (h, i) { return hashes.indexOf(h) === i; });
+  }
+
   async function generateIdFromHardwareSalted(salt) {
     const raw = collectHardwareSignals() + '|salt=' + String(salt || '');
     const hash = await sha256(raw);
@@ -245,60 +280,210 @@
 
   function cleanupOldCaches() { /* 의도적 no-op */ }
 
-  async function generateDeviceFingerprint() {
-    const cached = readLocalCache();
-    if (cached) {
-      writeLocalCache(cached);
-      return cached;
+  // ══════════════════════════════════════════════════════════════════════
+  // Firebase에서 가장 먼저 등록된 레코드 찾기 (크로스앱 ID 통합)
+  // ══════════════════════════════════════════════════════════════════════
+  // 우선순위 계산:
+  //  1. wmemory/hearingaid 등 '다른 앱'이 등록한 레코드를 최우선 채택
+  //     (이 앱들은 자기 ID를 바꾸지 않으므로 smartswitch가 맞춰야 통합됨)
+  //  2. 동일 우선순위 내에서는 가장 먼저 등록된 것
+  function docPriority(d) {
+    var data = d.data() || {};
+    var apps = Array.isArray(data.apps) ? data.apps : (data.appName ? [data.appName] : []);
+    // 다른 앱(wmemory/hearingaid)이 등록되어 있으면 높은 우선순위
+    var hasOther = apps.some(function (a) { return a && a !== APP_NAME; });
+    return hasOther ? 0 : 1;
+  }
+
+  function docRegTime(d) {
+    var data = d.data() || {};
+    var regTime = Infinity;
+    if (data.registeredAt && data.registeredAt.seconds) {
+      regTime = data.registeredAt.seconds;
+    } else if (data.registeredAt && typeof data.registeredAt === 'string') {
+      regTime = new Date(data.registeredAt).getTime() / 1000;
+    }
+    if (data.appRegisteredAt) {
+      Object.keys(data.appRegisteredAt).forEach(function (app) {
+        var t = new Date(data.appRegisteredAt[app]).getTime() / 1000;
+        if (t < regTime) regTime = t;
+      });
+    }
+    return regTime;
+  }
+
+  function pickEarliestDoc(docs) {
+    if (docs.length === 0) return null;
+    if (docs.length === 1) return docs[0];
+    // 1. 우선순위 낮은 숫자가 우선 (다른 앱 있는 레코드 먼저)
+    // 2. 같은 우선순위면 먼저 등록된 것
+    var sorted = docs.slice().sort(function (a, b) {
+      var pa = docPriority(a), pb = docPriority(b);
+      if (pa !== pb) return pa - pb;
+      return docRegTime(a) - docRegTime(b);
+    });
+    return sorted[0];
+  }
+
+  // admin.js와 동일한 클러스터링 키 (같은 물리 기기 식별용)
+  function computeLinkKey(info) {
+    var parts = [
+      info.cpuCores || '',
+      info.ramGB    || '',
+      info.screenRes|| '',
+      info.timezone || '',
+      info.os       || '',
+      info.gpu      || '',
+    ];
+    var nonEmpty = parts.filter(function (p) { return p !== '' && p !== 0 && p != null; });
+    if (nonEmpty.length < 4) return null;
+    return parts.join('|');
+  }
+
+  // 화면 가로/세로 스왑 버전 linkKey (모바일 회전 대응)
+  function computeLinkKeySwapped(info) {
+    var screenRes = info.screenRes || '';
+    var m = /^(\d+)×(\d+)(.*)$/.exec(screenRes);
+    if (m) screenRes = m[2] + '×' + m[1] + m[3];
+    var parts = [
+      info.cpuCores || '',
+      info.ramGB    || '',
+      screenRes,
+      info.timezone || '',
+      info.os       || '',
+      info.gpu      || '',
+    ];
+    var nonEmpty = parts.filter(function (p) { return p !== '' && p !== 0 && p != null; });
+    if (nonEmpty.length < 4) return null;
+    return parts.join('|');
+  }
+
+  async function findEarliestRecord(db) {
+    var allDocs = [];
+    var seenIds = {};
+
+    console.log('[DeviceAuth] findEarliestRecord 시작');
+
+    // 1단계: hardwareHash로 정확 조회
+    try {
+      var candidates = await getAllCandidateHashes();
+      console.log('[DeviceAuth] 후보 해시 ' + candidates.length + '개');
+      for (var i = 0; i < candidates.length; i++) {
+        try {
+          var snap = await db.collection(COLLECTION)
+            .where('hardwareHash', '==', candidates[i])
+            .get();
+          if (snap.docs.length > 0) {
+            console.log('[DeviceAuth] Step1 hash', candidates[i].substring(0,8), '→', snap.docs.length, '건');
+          }
+          snap.docs.forEach(function (d) {
+            if (!seenIds[d.id]) {
+              seenIds[d.id] = true;
+              allDocs.push(d);
+            }
+          });
+        } catch (e1) { console.warn('[DeviceAuth] Step1 쿼리 실패:', e1.message); }
+      }
+    } catch (e) { console.warn('[DeviceAuth] Step1 전체 실패:', e.message); }
+
+    // 2단계: 하드웨어 필드 매칭
+    try {
+      var info = collectDeviceInfo();
+      var myKey    = computeLinkKey(info);
+      var myKeyAlt = computeLinkKeySwapped(info);
+      console.log('[DeviceAuth] 내 linkKey:', myKey);
+      if (myKey || myKeyAlt) {
+        var snapAll = await db.collection(COLLECTION).get();
+        console.log('[DeviceAuth] 전체 레코드:', snapAll.docs.length, '건');
+        snapAll.docs.forEach(function (d) {
+          if (seenIds[d.id]) return;
+          var data = d.data() || {};
+          var key = computeLinkKey(data);
+          if (key && (key === myKey || key === myKeyAlt)) {
+            console.log('[DeviceAuth] Step2 매칭:', d.id);
+            seenIds[d.id] = true;
+            allDocs.push(d);
+          }
+        });
+      }
+    } catch (e2) { console.warn('[DeviceAuth] Step2 실패:', e2.message); }
+
+    if (allDocs.length === 0) {
+      console.log('[DeviceAuth] 매칭 레코드 없음');
+      return null;
     }
 
-    const db = initFirebase();
-    if (db) {
-      try {
-        const currentHash = await getHardwareHash();
-        const snap = await db.collection(COLLECTION)
-          .where('hardwareHash', '==', currentHash)
-          .get();
-        const legacyDocs = snap.docs.filter(function (d) {
-          const data = d.data() || {};
-          return !data.salt;
-        });
-        if (legacyDocs.length === 1) {
-          const existingId = legacyDocs[0].id;
-          writeLocalCache(existingId);
-          return existingId;
-        }
-      } catch (e) {}
+    console.log('[DeviceAuth] 후보 ' + allDocs.length + '개:', allDocs.map(function (d) { return d.id; }));
 
-      try {
-        const currentHash = await getHardwareHash();
-        const legacyHashes = await getLegacyHardwareHashes();
-        for (let i = 0; i < legacyHashes.length; i++) {
-          const lh = legacyHashes[i];
+    var doc = pickEarliestDoc(allDocs);
+    var data = doc.data() || {};
+    console.log('[DeviceAuth] 가장 먼저 등록된 ID:', doc.id);
+    return { id: doc.id, salt: data.salt || null };
+  }
+
+  // 매 페이지 로드마다 크로스앱 ID 통합 시도 (플래그 없음 — idempotent)
+  async function crossAppSync(cachedId) {
+    console.log('[DeviceAuth] crossAppSync 호출, cached=', cachedId);
+    var db = initFirebase();
+    if (!db) { console.warn('[DeviceAuth] Firebase 미초기화 — 동기화 스킵'); return cachedId; }
+
+    try {
+      var found = await findEarliestRecord(db);
+      if (!found) return cachedId;            // Firebase에 매칭 레코드 없음 → 유지
+      if (found.id === cachedId) return cachedId; // 이미 올바른 ID
+
+      console.log('[DeviceAuth] 크로스앱 ID 통합:', cachedId, '→', found.id);
+
+      // salt 저장
+      if (found.salt) {
+        try { localStorage.setItem(SALT_KEY, found.salt); } catch (_) {}
+        try {
+          var exp = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toUTCString();
+          document.cookie = SALT_COOKIE + '=' + found.salt + '; expires=' + exp + '; path=/; SameSite=Lax';
+        } catch (_) {}
+      }
+
+      // 중복 레코드 삭제 (실패해도 무시)
+      try { await db.collection(COLLECTION).doc(cachedId).delete(); } catch (_) {}
+
+      writeLocalCache(found.id);
+      return found.id;
+    } catch (e) {
+      console.warn('[DeviceAuth] crossAppSync 오류:', e);
+      return cachedId;
+    }
+  }
+
+  async function generateDeviceFingerprint() {
+    // 1. 로컬 캐시 확인 + 크로스앱 동기화
+    var cached = readLocalCache();
+    if (cached) {
+      // 1회성 동기화: 캐시 ID가 Firebase에 없으면 올바른 ID로 교체
+      var synced = await crossAppSync(cached);
+      writeLocalCache(synced);
+      return synced;
+    }
+
+    var db = initFirebase();
+    if (db) {
+      // 2. Firebase에서 같은 기기의 기존 레코드 찾기
+      var found = await findEarliestRecord(db);
+      if (found) {
+        if (found.salt) {
+          try { localStorage.setItem(SALT_KEY, found.salt); } catch (_) {}
           try {
-            const snap2 = await db.collection(COLLECTION)
-              .where('hardwareHash', '==', lh.hash)
-              .get();
-            const legacyDocs2 = snap2.docs.filter(function (d) {
-              const data = d.data() || {};
-              return !data.salt;
-            });
-            if (legacyDocs2.length === 1) {
-              const existingId = legacyDocs2[0].id;
-              writeLocalCache(existingId);
-              try {
-                await db.collection(COLLECTION).doc(existingId)
-                  .update({ hardwareHash: currentHash });
-              } catch (_) {}
-              return existingId;
-            }
+            var exp2 = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toUTCString();
+            document.cookie = SALT_COOKIE + '=' + found.salt + '; expires=' + exp2 + '; path=/; SameSite=Lax';
           } catch (_) {}
         }
-      } catch (_) {}
+        writeLocalCache(found.id);
+        return found.id;
+      }
     }
 
-    const salt = getOrCreateDeviceSalt();
-    const id = await generateIdFromHardwareSalted(salt);
+    // 3. 신규 기기 → 하드웨어 + 기기 고유 솔트로 ID 생성
+    var salt = getOrCreateDeviceSalt();
+    var id = await generateIdFromHardwareSalted(salt);
     writeLocalCache(id);
     return id;
   }
@@ -532,14 +717,48 @@
         '<div class="wmem-gate-msg">처음 접속하셨네요!<br>사용자 이름을 입력하세요.</div>' +
         '<input type="text" id="wmem-gate-name" class="wmem-gate-input" placeholder="이름 (2~20자)" maxlength="20" />' +
         '<button id="wmem-gate-register-btn" class="wmem-gate-btn">등록 요청</button>' +
-        '<div class="wmem-gate-err" id="wmem-gate-err"></div>';
+        '<div class="wmem-gate-err" id="wmem-gate-err"></div>' +
+        '<div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.1);">' +
+        '  <div style="font-size:12px; color:rgba(255,255,255,0.5); margin-bottom:8px;">다른 앱(Working Memory 등)에서 이미 등록했다면:</div>' +
+        '  <button id="wmem-gate-link-btn" class="wmem-gate-btn" style="background:rgba(255,255,255,0.1); box-shadow:none;">기존 기기 ID로 연결</button>' +
+        '</div>';
       document.getElementById('wmem-gate-register-btn').onclick = function () {
         handleRegister(deviceId);
+      };
+      document.getElementById('wmem-gate-link-btn').onclick = function () {
+        setGateState('link', deviceId);
       };
       var input = document.getElementById('wmem-gate-name');
       input.focus();
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') handleRegister(deviceId);
+      });
+    } else if (state === 'link') {
+      body.innerHTML =
+        '<div class="wmem-gate-msg">기존 기기 ID를 입력하세요.<br><span style="font-size:12px; color:rgba(255,255,255,0.55);">예: DB5A-CCFE-26F7-63CD</span></div>' +
+        '<input type="text" id="wmem-gate-linkid" class="wmem-gate-input" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" style="text-transform:uppercase; font-family:monospace;" />' +
+        '<button id="wmem-gate-link-go" class="wmem-gate-btn">연결하기</button>' +
+        '<button id="wmem-gate-link-back" class="wmem-gate-btn" style="background:rgba(255,255,255,0.1); box-shadow:none;">← 뒤로</button>' +
+        '<div class="wmem-gate-err" id="wmem-gate-err"></div>';
+      document.getElementById('wmem-gate-link-go').onclick = function () {
+        handleLink();
+      };
+      document.getElementById('wmem-gate-link-back').onclick = function () {
+        setGateState('register', deviceId);
+      };
+      var linkInput = document.getElementById('wmem-gate-linkid');
+      linkInput.focus();
+      linkInput.addEventListener('input', function () {
+        // 자동 포맷팅: 4글자마다 대시
+        var v = this.value.toUpperCase().replace(/[^A-F0-9]/g, '');
+        var parts = [];
+        for (var i = 0; i < v.length && i < 16; i += 4) {
+          parts.push(v.substring(i, i + 4));
+        }
+        this.value = parts.join('-');
+      });
+      linkInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') handleLink();
       });
     } else if (state === 'pending') {
       body.innerHTML =
@@ -557,6 +776,65 @@
         '<div class="wmem-gate-msg wmem-gate-blocked">⚠️ 연결 오류가 발생했습니다.</div>' +
         '<button id="wmem-gate-retry-btn" class="wmem-gate-btn">다시 시도</button>';
       document.getElementById('wmem-gate-retry-btn').onclick = function () { runGate(); };
+    }
+  }
+
+  async function handleLink() {
+    var input = document.getElementById('wmem-gate-linkid');
+    var err = document.getElementById('wmem-gate-err');
+    var btn = document.getElementById('wmem-gate-link-go');
+    var targetId = (input.value || '').trim().toUpperCase();
+    err.textContent = '';
+
+    if (!FP_REGEX.test(targetId)) {
+      err.textContent = '올바른 형식이 아닙니다 (XXXX-XXXX-XXXX-XXXX).';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '확인 중...';
+
+    var db = initFirebase();
+    if (!db) {
+      err.textContent = '네트워크 연결을 확인해 주세요.';
+      btn.disabled = false;
+      btn.textContent = '연결하기';
+      return;
+    }
+
+    try {
+      var snap = await db.collection(COLLECTION).doc(targetId).get();
+      if (!snap.exists) {
+        err.textContent = '해당 기기 ID를 찾을 수 없습니다.';
+        btn.disabled = false;
+        btn.textContent = '연결하기';
+        return;
+      }
+
+      var data = snap.data() || {};
+      // salt를 로컬에 저장
+      if (data.salt) {
+        try { localStorage.setItem(SALT_KEY, data.salt); } catch (_) {}
+        try {
+          var exp = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toUTCString();
+          document.cookie = SALT_COOKIE + '=' + data.salt + '; expires=' + exp + '; path=/; SameSite=Lax';
+        } catch (_) {}
+      }
+      writeLocalCache(targetId);
+
+      // smartswitch 앱으로 등록
+      var userName = data.userName || '';
+      await registerDevice(targetId, userName);
+
+      // 상태 확인 후 적절한 화면으로
+      var status = await checkDeviceStatus(targetId);
+      if (status === 'approved') { hideGate(); return; }
+      if (status === 'blocked') { setGateState('blocked', targetId); return; }
+      setGateState('pending', targetId, { userName: userName });
+    } catch (e) {
+      err.textContent = '연결에 실패했습니다. 다시 시도해 주세요.';
+      btn.disabled = false;
+      btn.textContent = '연결하기';
     }
   }
 

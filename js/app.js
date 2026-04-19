@@ -132,6 +132,8 @@ class SmartSwitchingGame {
         this.setupAudio();
         this.setupFX();
         this.startTraining(0);
+        // 클라이언트 인디케이터 초기화
+        if (typeof ClientManager !== 'undefined') ClientManager.updateClientDisplay();
     }
 
     /* ---------------- Menu Setup ---------------- */
@@ -148,9 +150,10 @@ class SmartSwitchingGame {
 
         // Menu toggling
         const menus = [
-            { item: 'menuFile',  drop: 'dropdownFile'  },
-            { item: 'menuLevel', drop: 'dropdownLevel' },
-            { item: 'menuTest',  drop: 'dropdownTest'  }
+            { item: 'menuFile',   drop: 'dropdownFile'   },
+            { item: 'menuLevel',  drop: 'dropdownLevel'  },
+            { item: 'menuTest',   drop: 'dropdownTest'   },
+            { item: 'menuClient', drop: 'dropdownClient' }
         ];
         menus.forEach(m => {
             const itemEl = document.getElementById(m.item);
@@ -735,6 +738,14 @@ class SmartSwitchingGame {
         const dateStr = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
         const di = document.getElementById('trainDate');
         if (!di.value) di.value = dateStr;
+        // 활성 클라이언트 이름 자동 채움
+        if (typeof ClientManager !== 'undefined') {
+            const ac = ClientManager.getActiveClient();
+            if (ac) {
+                const ni = document.getElementById('clientName');
+                if (ni && !ni.value) ni.value = ac.name;
+            }
+        }
         // Hide menu, stats bar, game elements
         document.querySelector('.menu-bar').style.display = 'none';
         document.getElementById('gameArea').style.display = 'none';
@@ -743,8 +754,31 @@ class SmartSwitchingGame {
         document.getElementById('progressWrap').style.display = 'none';
         document.getElementById('comboBadge').style.display = 'none';
         document.getElementById('fxCanvas').style.display = 'none';
+        // 세션 저장 (활성 클라이언트가 있을 때만)
+        this._saveCurrentSession('training');
         // Generate AI analysis (async)
         this.loadAnalysis();
+    }
+
+    /* ---------------- Client Session Saving ---------------- */
+    _saveCurrentSession(mode, testType) {
+        if (typeof saveClientSession !== 'function') return;
+        const m = this.computeMetrics();
+        saveClientSession({
+            mode: mode,                                // 'training' | 'test'
+            testType: testType || null,                // preschool/elementary/middle/adult
+            level: mode === 'training' ? this.currentLevel : null,
+            targetScore: parseInt(m.targetPoint) || 0,
+            totalAttempts: parseInt(m.totalTries) || 0,
+            correct: parseInt(m.correct) || 0,
+            errors: parseInt(m.errors) || 0,
+            errorRate: parseFloat(m.errRate) || 0,
+            totalTime: this.stats.totalTime || 0,
+            avgTime: parseFloat(m.avgTime) || 0,
+            grade: this._lastGradeTier || null,
+            gradeLabel: this._lastGradeLabel || null,
+            score: this.stats.point || 0
+        });
     }
 
     backFromResult() {
@@ -1453,12 +1487,24 @@ ${err >= 15 ? '- **오류율 ' + m.errRate + '%** — 충동적 반응 억제(In
         const mins = Math.floor(this.stats.totalTime / 60000);
         const secs = Math.floor((this.stats.totalTime % 60000) / 1000);
 
+        // 세션 저장용 등급 저장
+        this._lastGradeTier = tier;
+        this._lastGradeLabel = tierInfo ? (tierInfo.label || tierInfo.name) : null;
+
         document.getElementById('testScore').textContent = this.stats.correct;
         document.getElementById('testTime').textContent = `${mins}분:${String(secs).padStart(2,'0')}초`;
         const today = new Date();
         const dateStr = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
         const di = document.getElementById('testDate');
         if (!di.value) di.value = dateStr;
+        // 활성 클라이언트 이름 자동 채움
+        if (typeof ClientManager !== 'undefined') {
+            const ac = ClientManager.getActiveClient();
+            if (ac) {
+                const ni = document.getElementById('testClientName');
+                if (ni && !ni.value) ni.value = ac.name;
+            }
+        }
 
         this.renderGradeWheel(tier, tierInfo);
 
@@ -1466,6 +1512,9 @@ ${err >= 15 ? '- **오류율 ' + m.errRate + '%** — 충동적 반응 억제(In
         document.querySelector('.menu-bar').style.display = 'none';
         document.getElementById('gameArea').style.display = 'none';
         document.getElementById('statsBar').style.display = 'none';
+
+        // 세션 저장
+        this._saveCurrentSession('test', this.testType);
     }
 
     backFromTestResult() {

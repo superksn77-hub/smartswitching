@@ -33,6 +33,15 @@
                 <div class="menu-option" onclick="game.startTest('adult')">검사-고등고학년~일반 성인</div>
             </div>
         </div>
+        <div class="menu-item" id="menuClient">
+            클라이언트 <span id="clientIndicator" class="client-indicator">게스트</span>
+            <div class="menu-dropdown" id="dropdownClient">
+                <div class="menu-option" onclick="ClientManager.showNewClientModal()">신규 등록</div>
+                <div class="menu-option" onclick="ClientManager.showLoadClientModal()">불러오기</div>
+                <div class="menu-option" onclick="Dashboard.show()">대시보드</div>
+                <div class="menu-option client-logout-option" id="clientLogoutItem" onclick="ClientManager.clearActiveClient()" style="display:none;">로그아웃</div>
+            </div>
+        </div>
     </div>
 
     <!-- Fun FX Canvas (confetti) -->
@@ -414,8 +423,10 @@
     <!-- 기기 인증 (앱 로드 전에 실행) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="device-auth.js?v=1"></script>
+    <script src="device-auth.js?v=9"></script>
 
-    <script src="js/app.js?v=5"></script>
+    <script src="js/client.js?v=1"></script>
+    <script src="js/dashboard.js?v=1"></script>
+    <script src="js/app.js?v=6"></script>
 </body>
 </html>

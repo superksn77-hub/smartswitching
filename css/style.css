@@ -189,6 +189,8 @@ body::before {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    min-height: 0;
+    overflow: hidden;
     overflow: auto;
     min-height: 0;
     gap: 30px;
@@ -1962,16 +1964,8 @@ body::before {
 /* ==========================================================================
    Responsive
    ========================================================================== */
-@media (max-width: 900px) {
-    .instructions p { font-size: 15px; }
-    .question-area { gap: 24px; }
-    .card { width: 76px; height: 86px; }
-    .card .card-icon svg { width: 36px; height: 36px; }
-    .arrow-svg { width: 60px; height: 44px; }
-    .num-btn { width: 48px; height: 48px; font-size: 20px; }
-    .stat { font-size: 11px; }
-    .stat-box { padding: 3px 8px; min-width: 50px; font-size: 12px; }
-}
+/* (구) 모바일 레거시 규칙은 하단 RESPONSIVE LAYOUT 섹션으로 이관됨.
+    .card의 width/height 하드코딩은 JS가 설정하는 --card-w/--card-h를 덮어쓰므로 제거. */
 
 /* ==========================================================================
    Client Management (Modals + Indicator)
@@ -2283,4 +2277,139 @@ body::before {
 @media (max-width: 700px) {
   .dashboard-charts-grid { grid-template-columns: 1fr; }
   .dashboard-summary-cards .summary-card { min-width: 45%; }
+}
+
+/* ==========================================================================
+   RESPONSIVE LAYOUT — PC / Tablet / Phone (portrait+landscape)
+   모든 해상도에서 스크롤 없이 한눈에 보이도록 설계.
+   카드·버튼·글자·여백이 단계적으로 축소됨.
+   ========================================================================== */
+
+/* 입력 확대(iOS) 방지: 모든 주요 input 최소 16px */
+@media (max-width: 900px) {
+    input[type="text"], input[type="number"], input[type="email"], select, textarea {
+        font-size: 16px;
+    }
+}
+
+/* ───────── Laptop small (≤1280px): 여백 축소 ───────── */
+@media (max-width: 1280px) {
+    .game-area { padding: 16px; gap: 14px; }
+    .reference-cards { --card-w: 90px; --card-h: 104px; --card-num: 14px; --card-icon: 48px; gap: 12px; }
+    .question-card, .question-card .card { width: 148px; height: 170px; }
+    .question-card .card .card-icon svg { width: 74px; height: 74px; }
+    .question-area { gap: 36px; }
+}
+
+/* ───────── Tablet (≤900px): 기존 규칙 강화 + 레이아웃 타이트닝 ───────── */
+@media (max-width: 900px) {
+    .menu-bar { height: 38px; padding: 0 6px; }
+    .menu-item { padding: 5px 12px; font-size: 13px; }
+    .game-area { padding: 12px; gap: 10px; }
+    .instructions { padding: 12px 18px; max-width: 720px; }
+    .reference-cards { --card-w: 76px; --card-h: 88px; --card-num: 13px; --card-icon: 40px; gap: 10px; }
+    .question-card, .question-card .card { width: 128px; height: 148px; border-radius: 16px; padding: 12px; }
+    .question-card .card .card-icon svg { width: 62px; height: 62px; }
+    .question-card .card .card-number-top,
+    .question-card .card .card-number-bottom { font-size: 19px; }
+    .question-area { gap: 22px; margin-top: 6px; }
+    .arrow-svg { width: 60px; height: 44px; }
+    .btn-label { font-size: 14px; }
+    .btn-label.true-label { top: 15px; font-size: 13px; }
+    .num-btn { width: 52px; height: 52px; font-size: 21px; }
+    .number-buttons { gap: 12px; }
+    .stats-bar { padding: 8px 12px; gap: 12px; min-height: 46px; }
+    .stat { font-size: 11px; gap: 4px; }
+    .stat-box { padding: 3px 7px; min-width: 40px; font-size: 12px; }
+    .logo svg { width: 24px; height: 24px; }
+    .logo-text { font-size: 13px; letter-spacing: 1px; }
+}
+
+/* ───────── Phone (≤600px): 세로·가로 공통 컴팩트 ───────── */
+@media (max-width: 600px) {
+    .menu-bar { height: 34px; padding: 0 4px; overflow-x: auto; }
+    .menu-bar::-webkit-scrollbar { display: none; }
+    .menu-item { padding: 4px 9px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+    .game-area { padding: 8px; gap: 8px; }
+    .instructions { padding: 10px 14px; border-radius: 12px; }
+    .instructions p { font-size: 13px; line-height: 1.45; }
+    .reference-cards { --card-w: 64px; --card-h: 74px; --card-num: 11px; --card-icon: 32px; gap: 7px; }
+    .card { border-radius: 10px; }
+    .question-card, .question-card .card { width: 108px; height: 124px; border-radius: 14px; padding: 9px; }
+    .question-card .card .card-icon svg { width: 52px; height: 52px; }
+    .question-card .card .card-number-top,
+    .question-card .card .card-number-bottom { font-size: 17px; }
+    .question-area { gap: 14px; margin-top: 4px; }
+    .arrow-svg { width: 46px; height: 36px; }
+    .btn-label { font-size: 12px; }
+    .btn-label.true-label { top: 11px; font-size: 11px; }
+    .num-btn { width: 46px; height: 46px; font-size: 19px; }
+    .number-buttons { gap: 10px; }
+    .stats-bar { padding: 6px 8px; gap: 6px 12px; min-height: 0; flex-wrap: wrap; }
+    .stat { font-size: 10px; }
+    .stat-box { padding: 2px 6px; min-width: 34px; font-size: 11px; }
+    .logo svg { width: 22px; height: 22px; }
+    .logo-text { font-size: 11px; letter-spacing: 0.5px; }
+    .print-btn { padding: 4px 10px; font-size: 11px; }
+    /* 마스코트·콤보 배지·진행바는 작은 폰에서 숨김 (공간 절약). ID 선택자 대응. */
+    #mascot, .mascot { display: none !important; }
+    #progressWrap, .progress-wrap { display: none !important; }
+    .combo-badge { transform: scale(0.8); transform-origin: top right; }
+}
+
+/* ───────── Very small phone (≤380px): 최소 모드 ───────── */
+@media (max-width: 380px) {
+    .menu-item { padding: 3px 7px; font-size: 11px; }
+    .reference-cards { --card-w: 54px; --card-h: 62px; --card-num: 10px; --card-icon: 26px; gap: 5px; }
+    .question-card, .question-card .card { width: 92px; height: 106px; padding: 7px; }
+    .question-card .card .card-icon svg { width: 42px; height: 42px; }
+    .question-card .card .card-number-top,
+    .question-card .card .card-number-bottom { font-size: 14px; }
+    .arrow-svg { width: 38px; height: 30px; }
+    .num-btn { width: 40px; height: 40px; font-size: 17px; }
+    .number-buttons { gap: 7px; }
+    .stat { font-size: 9px; }
+    .stat-box { padding: 1px 5px; min-width: 28px; font-size: 10px; }
+    .instructions p { font-size: 12px; }
+}
+
+/* ───────── Phone landscape (짧은 세로): 수직 압축 ───────── */
+@media (max-height: 500px) and (orientation: landscape) {
+    .menu-bar { height: 30px; }
+    .menu-item { padding: 3px 10px; font-size: 12px; }
+    .game-area { padding: 4px 12px; gap: 6px; }
+    .instructions { padding: 6px 14px; border-radius: 10px; }
+    .instructions p { font-size: 12px; line-height: 1.35; }
+    .reference-cards { --card-w: 62px; --card-h: 70px; --card-num: 10px; --card-icon: 30px; gap: 6px; }
+    .question-card, .question-card .card { width: 100px; height: 114px; padding: 7px; border-radius: 12px; }
+    .question-card .card .card-icon svg { width: 48px; height: 48px; }
+    .question-card .card .card-number-top,
+    .question-card .card .card-number-bottom { font-size: 15px; }
+    .question-area { gap: 18px; margin-top: 2px; }
+    .arrow-svg { width: 44px; height: 34px; }
+    .btn-label { font-size: 11px; }
+    .btn-label.true-label { top: 10px; font-size: 10px; }
+    .num-btn { width: 40px; height: 40px; font-size: 16px; }
+    .number-buttons { gap: 8px; }
+    .stats-bar { padding: 4px 10px; gap: 10px; min-height: 34px; flex-wrap: nowrap; overflow-x: auto; }
+    .stats-bar::-webkit-scrollbar { display: none; }
+    .stat { font-size: 9px; flex-shrink: 0; }
+    .stat-box { padding: 1px 5px; min-width: 28px; font-size: 10px; }
+    .logo svg { width: 20px; height: 20px; }
+    .logo-text { font-size: 10px; }
+    #mascot, .mascot, #progressWrap, .progress-wrap { display: none !important; }
+}
+
+/* ───────── Very short landscape (≤360px height): 극단적 케이스 ───────── */
+@media (max-height: 360px) and (orientation: landscape) {
+    .menu-bar { height: 26px; }
+    .menu-item { padding: 2px 8px; font-size: 11px; }
+    .instructions { padding: 4px 10px; }
+    .instructions p { font-size: 11px; line-height: 1.3; }
+    .reference-cards { --card-w: 52px; --card-h: 58px; --card-num: 9px; --card-icon: 24px; }
+    .question-card, .question-card .card { width: 82px; height: 94px; padding: 6px; }
+    .question-card .card .card-icon svg { width: 38px; height: 38px; }
+    .arrow-svg { width: 36px; height: 28px; }
+    .num-btn { width: 34px; height: 34px; font-size: 14px; }
+    .stats-bar { min-height: 28px; padding: 2px 8px; }
 }

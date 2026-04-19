@@ -447,12 +447,17 @@ class SmartSwitchingGame {
     /* ---------------- Resize ---------------- */
     setupResize() {
         let t;
-        window.addEventListener('resize', () => {
+        const handler = () => {
             clearTimeout(t);
             t = setTimeout(() => {
-                if (this.mode === 'training') this.fitReferenceToScreen();
+                if (this.referencePairs && this.referencePairs.length) {
+                    this.fitReferenceToScreen();
+                }
             }, 120);
-        });
+        };
+        window.addEventListener('resize', handler, { passive: true });
+        // 모바일 회전 시에도 재계산
+        window.addEventListener('orientationchange', handler, { passive: true });
     }
 
     /* ---------------- Keyboard Input ---------------- */
@@ -539,11 +544,37 @@ class SmartSwitchingGame {
         const n = this.referencePairs.length;
         if (!n) return;
 
-        const viewportW = Math.max(window.innerWidth - 60, 320);
-        // Reserved: menu(40) + instructions(~90) + question area(~220) + stats(~60) + paddings(~80)
-        const reservedH = 490;
-        const viewportH = Math.max(window.innerHeight - reservedH, 160);
-        const gap = 12;
+        // 뷰포트 크기에 따라 가로 패딩·예약 세로공간을 동적으로 산정.
+        //  - 데스크탑/태블릿: 메뉴(40) + 안내(~90) + 문제영역(~220) + 통계(~60) + 여백 ≈ 490
+        //  - 태블릿 좁음     : 360 전후
+        //  - 폰 세로         : 260 전후  (안내·문제·통계 모두 축소됨)
+        //  - 폰 가로(짧음)   : 200 전후  (매우 컴팩트)
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const isLandscape = vw > vh;
+
+        let sidePad, reservedH, gap, minCard, maxCard;
+        // reservedH = 메뉴 + 안내 + 문제영역 + 통계 + 수직 간격 ≈ 컴파일타임 추정
+        if (vw <= 380) {
+            sidePad = 16;  reservedH = 300; gap = 6;  minCard = 42; maxCard = 90;
+        } else if (vw <= 600) {
+            sidePad = 20;  reservedH = 320; gap = 7;  minCard = 48; maxCard = 110;
+        } else if (vw <= 900) {
+            sidePad = 28;  reservedH = 420; gap = 10; minCard = 56; maxCard = 130;
+        } else if (vw <= 1280) {
+            sidePad = 40;  reservedH = 460; gap = 12; minCard = 60; maxCard = 150;
+        } else {
+            sidePad = 60;  reservedH = 490; gap = 12; minCard = 60; maxCard = 170;
+        }
+        // 폰 가로(짧은 세로): 예약공간 재조정 — 안내문/문제영역/통계 모두 들어가야 함
+        if (isLandscape && vh <= 500) {
+            // 메뉴(30) + 안내(~30) + 문제영역(~115) + 통계(~34) + 간격(~20) ≈ 230
+            reservedH = Math.min(reservedH, 245);
+            if (vh <= 360) reservedH = 210;
+        }
+
+        const viewportW = Math.max(vw - sidePad, 220);
+        const viewportH = Math.max(vh - reservedH, 110);
         const ratio = 1.15;
 
         // Try every column count, pick the one giving largest card that fits both dims
@@ -558,19 +589,21 @@ class SmartSwitchingGame {
         }
 
         // Clamp card size
-        const cardW = Math.max(54, Math.min(170, best.cardW));
+        const cardW = Math.max(minCard, Math.min(maxCard, best.cardW));
         const cardH = Math.round(cardW * ratio);
-        const fontNum = Math.max(10, Math.round(cardW * 0.15));
+        const fontNum = Math.max(9, Math.round(cardW * 0.15));
         const iconSize = Math.round(cardW * 0.54);
-        const radius = Math.max(8, Math.round(cardW * 0.13));
+        const radius = Math.max(6, Math.round(cardW * 0.13));
 
         wrap.style.setProperty('--card-w', cardW + 'px');
         wrap.style.setProperty('--card-h', cardH + 'px');
         wrap.style.setProperty('--card-num', fontNum + 'px');
         wrap.style.setProperty('--card-icon', iconSize + 'px');
         wrap.style.setProperty('--card-radius', radius + 'px');
+        wrap.style.gap = gap + 'px';
         wrap.style.gridTemplateColumns = `repeat(${best.cols}, ${cardW}px)`;
     }
+
 
     makeCard(iconKey, number, active = false) {
         const card = document.createElement('div');

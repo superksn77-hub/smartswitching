@@ -688,9 +688,9 @@
     overlay.id = 'wmem-device-gate';
     overlay.innerHTML = [
       '<div class="wmem-gate-card">',
-      '  <div class="wmem-gate-icon">🔀</div>',
-      '  <div class="wmem-gate-title">SWITCHING MASTER</div>',
-      '  <div class="wmem-gate-subtitle">기기 인증이 필요합니다</div>',
+      '  <img src="assets/logo-symbol.png" alt="HIGHCOG BRAIN" class="wmem-gate-logo">',
+      '  <div class="wmem-gate-title">HIGHCOG BRAIN</div>',
+      '  <div class="wmem-gate-subtitle">스위칭마스터 · 기기 인증이 필요합니다</div>',
       '  <div class="wmem-gate-body" id="wmem-gate-body">',
       '    <div class="wmem-gate-spinner"></div>',
       '    <div class="wmem-gate-msg">기기를 확인하는 중...</div>',

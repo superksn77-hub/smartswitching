@@ -176,6 +176,18 @@ class SmartSwitchingGame {
                 document.getElementById(m.drop).classList.remove('show');
                 document.getElementById(m.item).classList.remove('active');
             });
+            document.querySelectorAll('.menu-option.has-submenu.open').forEach(el => el.classList.remove('open'));
+        });
+
+        // Nested submenu: clicking the parent (e.g. "New") toggles .open
+        // and keeps the parent dropdown open. Hover still opens via CSS.
+        document.querySelectorAll('.menu-option.has-submenu').forEach(parent => {
+            parent.addEventListener('click', (e) => {
+                // Only trigger if the click was on the parent itself, not a child option
+                if (e.target !== parent) return;
+                e.stopPropagation();
+                parent.classList.toggle('open');
+            });
         });
     }
 

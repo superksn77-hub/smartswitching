@@ -35,6 +35,15 @@
   animation: wmem-float 3s ease-in-out infinite;
 }
 
+.wmem-gate-logo {
+  display: block;
+  width: 96px;
+  height: auto;
+  margin: 0 auto 14px;
+  filter: drop-shadow(0 4px 18px rgba(100, 181, 246, 0.45));
+  animation: wmem-float 3s ease-in-out infinite;
+}
+
 @keyframes wmem-float {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-8px); }

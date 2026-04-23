@@ -2348,9 +2348,12 @@ body::before {
 
 /* ───────── Phone (≤600px): 세로·가로 공통 컴팩트 ───────── */
 @media (max-width: 600px) {
-    .menu-bar { height: 34px; padding: 0 4px; overflow-x: auto; }
-    .menu-bar::-webkit-scrollbar { display: none; }
-    .menu-item { padding: 4px 9px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+    /* overflow-x:auto 로 하면 드롭다운이 메뉴 바에 잘려 안 보임 → overflow:visible 유지.
+       메뉴 항목이 많이 들어올 때를 대비해 gap/padding 만 축소하고 필요하면 레이블을 짧게. */
+    .menu-bar { height: 34px; padding: 0 4px; overflow: visible; }
+    .menu-item { padding: 4px 8px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+    .menu-client-badge { padding: 2px 8px; font-size: 11px; }
+    .menu-client-label { display: none; } /* 공간 절약: "사용자:" 라벨 숨김 */
     .game-area { padding: 8px; gap: 8px; }
     .instructions { padding: 10px 14px; border-radius: 12px; }
     .instructions p { font-size: 13px; line-height: 1.45; }

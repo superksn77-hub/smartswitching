@@ -19,7 +19,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="application-name" content="SWITCHING MASTER">
 
-    <link rel="stylesheet" href="css/style.css?v=7">
+    <link rel="stylesheet" href="css/style.css?v=8">
     <link rel="stylesheet" href="device-gate.css?v=2">
 </head>
 <body>
@@ -36,6 +36,9 @@
                         <div class="menu-option" onclick="ClientManager.showLoadClientModal()">클라이언트 불러오기</div>
                     </div>
                 </div>
+                <div class="menu-option" onclick="Dashboard.show()">대시보드</div>
+                <div class="menu-option client-logout-option" id="clientLogoutItem" onclick="ClientManager.clearActiveClient()" style="display:none;">로그아웃</div>
+                <div class="menu-divider"></div>
                 <div class="menu-option" onclick="game.saveResults()">Save Results</div>
                 <div class="menu-option" onclick="window.close()">Exit</div>
             </div>
@@ -55,12 +58,10 @@
                 <div class="menu-option" onclick="game.startTest('adult')">검사-고등고학년~일반 성인</div>
             </div>
         </div>
-        <div class="menu-item" id="menuClient">
-            클라이언트 <span id="clientIndicator" class="client-indicator">게스트</span>
-            <div class="menu-dropdown" id="dropdownClient">
-                <div class="menu-option" onclick="Dashboard.show()">대시보드</div>
-                <div class="menu-option client-logout-option" id="clientLogoutItem" onclick="ClientManager.clearActiveClient()" style="display:none;">로그아웃</div>
-            </div>
+        <!-- 현재 클라이언트 표시 (읽기 전용 뱃지) — 우측 정렬 -->
+        <div class="menu-client-badge">
+            <span class="menu-client-label">사용자:</span>
+            <span id="clientIndicator" class="client-indicator">게스트</span>
         </div>
     </div>
 
@@ -436,7 +437,7 @@
 
     <script src="js/client.js?v=1"></script>
     <script src="js/dashboard.js?v=1"></script>
-    <script src="js/app.js?v=7"></script>
+    <script src="js/app.js?v=8"></script>
 
     <!-- PWA 설치 프롬프트 배너 -->
     <div id="pwaInstallBanner" class="pwa-banner" style="display:none;" role="dialog" aria-label="앱으로 설치">

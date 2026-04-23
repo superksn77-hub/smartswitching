@@ -150,10 +150,9 @@ class SmartSwitchingGame {
 
         // Menu toggling
         const menus = [
-            { item: 'menuFile',   drop: 'dropdownFile'   },
-            { item: 'menuLevel',  drop: 'dropdownLevel'  },
-            { item: 'menuTest',   drop: 'dropdownTest'   },
-            { item: 'menuClient', drop: 'dropdownClient' }
+            { item: 'menuFile',  drop: 'dropdownFile'  },
+            { item: 'menuLevel', drop: 'dropdownLevel' },
+            { item: 'menuTest',  drop: 'dropdownTest'  }
         ];
         menus.forEach(m => {
             const itemEl = document.getElementById(m.item);

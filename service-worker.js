@@ -9,16 +9,16 @@
  *  - POST/외부도메인/Firebase API 등은 절대 캐시하지 않음
  */
 
-const CACHE_NAME = 'switching-master-v1';
+const CACHE_NAME = 'switching-master-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
-  '/css/style.css?v=6',
+  '/css/style.css?v=8',
   '/device-gate.css?v=2',
   '/device-auth.js?v=10',
   '/js/client.js?v=1',
   '/js/dashboard.js?v=1',
-  '/js/app.js?v=7',
+  '/js/app.js?v=8',
   '/assets/logo-symbol.png',
   '/assets/logo-horizontal.png',
   '/assets/icons/icon-192.png',

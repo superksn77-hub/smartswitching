@@ -103,7 +103,6 @@ const TEST_CONFIG = {
    standard  : 일반 스위칭마스터 (match-to-sample; Monsell 2003, Miyake 2000)
    inverse   : 규칙 역전 — 우세 반응 억제 (Diamond 2013, Inhibition)
    nback     : 1-Back 작업기억 (Kirchner 1958; Jaeggi et al. 2008, PNAS)
-   gonogo    : Go/No-Go — 반응 억제 (Verbruggen & Logan 2008)
    ruleswitch: 과제 전환 — 규칙이 trial마다 변경 (Monsell 2003, Set-Shifting)
 */
 const TRAINING_VARIANTS = {
@@ -128,13 +127,6 @@ const TRAINING_VARIANTS = {
         showReference: false,
         evidence: 'N-Back WM training (Kirchner, 1958; Jaeggi et al., 2008, PNAS — 작업기억·유동성 지능)'
     },
-    gonogo: {
-        label: 'Go/No-Go — 반응 억제',
-        tag: '🛑 Go/No-Go',
-        instruction: '카드가 나타나면 <span class="true-text">True</span>(→)만 누르세요. 단, <b>✕ 표시 카드</b>가 나오면 <b>아무 것도 누르지 말고 기다리세요</b>. (각 시행 1.5초)',
-        showReference: false,
-        evidence: 'Go/No-Go paradigm — 반응 억제 (Verbruggen & Logan, 2008; Shalev et al., 2007 — ADHD 주의훈련)'
-    },
     ruleswitch: {
         label: '규칙전환 — 과제 전환',
         tag: '🔀 규칙전환',
@@ -156,9 +148,6 @@ class SmartSwitchingGame {
         this.currentQuestion = null;      // {icon, number, isMatch}
         this.nbackHistory = [];           // for N-Back variant
         this.currentRule = null;          // for ruleswitch: 'icon' | 'number'
-        this.gonogoTimer = null;          // for gonogo variant
-        this.gonogoDeadline = 0;
-        this.gonogoTickTimer = null;
         this.stats = {
             startTime: 0,
             lastAnswerTime: 0,
@@ -567,7 +556,6 @@ class SmartSwitchingGame {
         this.attempts = [];
         this.nbackHistory = [];
         this.currentRule = null;
-        this._clearGonogoTimer();
         this.resetStats();
         this.streak = 0;
         document.getElementById('questionCard').classList.remove('locked');
@@ -733,9 +721,7 @@ class SmartSwitchingGame {
     }
 
     nextQuestion() {
-        this._clearGonogoTimer();
         if (this.trainingVariant === 'nback')      return this._nextNBackQuestion();
-        if (this.trainingVariant === 'gonogo')     return this._nextGoNoGoQuestion();
         if (this.trainingVariant === 'ruleswitch') return this._nextRuleSwitchQuestion();
 
         // default (standard / inverse — 동일 생성, 평가만 다름)
@@ -790,67 +776,6 @@ class SmartSwitchingGame {
                 this.nextQuestion();
             }, 1400);
         }
-    }
-
-    /* ---------- Variant: Go/No-Go ---------- */
-    _nextGoNoGoQuestion() {
-        // No-Go 자극 = 'xMark'. 약 25% 확률로 등장.
-        const isGo = Math.random() >= 0.25;
-        const icon = isGo
-            ? (ICON_KEYS.filter(k => k !== 'xMark')[Math.floor(Math.random() * (ICON_KEYS.length - 1))])
-            : 'xMark';
-        const number = 1 + Math.floor(Math.random() * 9);
-        this.currentQuestion = { icon, number, isGo };
-        this.renderQuestion();
-        this.stats.lastAnswerTime = Date.now();
-
-        // 1.5초 deadline — 타임아웃이면 "withhold" 로 채점
-        const WINDOW = 1500;
-        this.gonogoDeadline = Date.now() + WINDOW;
-        this._startGonogoTick();
-        this.gonogoTimer = setTimeout(() => {
-            if (this.trainingDone) return;
-            this._resolveGonogo(null); // no response
-        }, WINDOW);
-    }
-
-    _startGonogoTick() {
-        this._stopGonogoTick();
-        const timerEl = document.getElementById('variantTimer');
-        if (!timerEl) return;
-        const tick = () => {
-            const remain = Math.max(0, this.gonogoDeadline - Date.now());
-            timerEl.textContent = '⏱ ' + (remain / 1000).toFixed(1) + 's';
-        };
-        tick();
-        this.gonogoTickTimer = setInterval(tick, 80);
-    }
-
-    _stopGonogoTick() {
-        if (this.gonogoTickTimer) {
-            clearInterval(this.gonogoTickTimer);
-            this.gonogoTickTimer = null;
-        }
-        const timerEl = document.getElementById('variantTimer');
-        if (timerEl) timerEl.textContent = '';
-    }
-
-    _clearGonogoTimer() {
-        if (this.gonogoTimer) {
-            clearTimeout(this.gonogoTimer);
-            this.gonogoTimer = null;
-        }
-        this._stopGonogoTick();
-    }
-
-    _resolveGonogo(userResponded) {
-        // userResponded: true(응답함) / null(withhold)
-        this._clearGonogoTimer();
-        if (!this.currentQuestion || this.trainingDone) return;
-        const shouldGo = this.currentQuestion.isGo;
-        // Go 자극 + 응답 = correct / No-Go 자극 + withhold = correct
-        const correct = (shouldGo && userResponded === true) || (!shouldGo && userResponded === null);
-        this._applyAnswerResult(correct);
     }
 
     /* ---------- Variant: Rule-Switch ---------- */
@@ -918,11 +843,6 @@ class SmartSwitchingGame {
         // N-Back: skip 채점 on very first card (no previous to compare)
         if (this.trainingVariant === 'nback' && this.currentQuestion.isFirst) return;
 
-        // Go/No-Go: any button press = "responded"
-        if (this.trainingVariant === 'gonogo') {
-            return this._resolveGonogo(true);
-        }
-
         let correct;
         if (this.trainingVariant === 'inverse') {
             correct = (userSaidTrue === !this.currentQuestion.isMatch);
@@ -984,7 +904,6 @@ class SmartSwitchingGame {
             // Lock training: no more questions, no more input
             this.trainingDone = true;
             this.stopTimer();
-            this._clearGonogoTimer();
             this.celebrationBurst();
             // Hide question card so user can't click further
             const qc = document.getElementById('questionCard');
@@ -1640,7 +1559,6 @@ ${err >= 15 ? '- **오류율 ' + m.errRate + '%** — 충동적 반응 억제(In
         this.mode = 'test';
         this.testType = type;
         this.trainingVariant = 'standard';
-        this._clearGonogoTimer();
         this.resetStats();
         this.streak = 0;
         // Hide variant banner during test

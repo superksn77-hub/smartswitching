@@ -259,6 +259,71 @@ body::before {
 }
 
 /* ==========================================================================
+   Variant Banner — 기타훈련 규칙/타이머 표시
+   ========================================================================== */
+.variant-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 8px auto 4px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #fff7e6 0%, #ffefd0 100%);
+    border: 1px solid #f3c77a;
+    box-shadow: 0 4px 12px rgba(210, 140, 40, 0.12);
+    font-size: 14px;
+    max-width: 780px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+.variant-banner .variant-tag {
+    background: #f39c12;
+    color: #fff;
+    padding: 3px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.variant-banner .variant-rule {
+    color: #7d5a1a;
+    font-weight: 500;
+}
+.variant-banner .variant-rule small { color: #a87a3a; font-size: 12px; }
+.variant-banner .variant-rule .rule-icon   { color: #2b6cb0; }
+.variant-banner .variant-rule .rule-number { color: #c05a00; }
+.variant-banner .variant-timer {
+    margin-left: auto;
+    padding: 3px 10px;
+    background: #fff;
+    border-radius: 8px;
+    font-family: 'Consolas', monospace;
+    color: #c0392b;
+    font-weight: 700;
+    min-width: 48px;
+    text-align: center;
+}
+.variant-banner:empty { display: none; }
+/* Variant color accents */
+.variant-banner.v-inverse    { background: linear-gradient(135deg,#fff0f3 0%,#ffd8e0 100%); border-color:#eb8aa0; }
+.variant-banner.v-inverse    .variant-tag { background:#d1497b; }
+.variant-banner.v-nback      { background: linear-gradient(135deg,#eef4ff 0%,#d8e4ff 100%); border-color:#8ba7e4; }
+.variant-banner.v-nback      .variant-tag { background:#3b6fd6; }
+.variant-banner.v-gonogo     { background: linear-gradient(135deg,#f3e8ff 0%,#e3d0ff 100%); border-color:#a47fd1; }
+.variant-banner.v-gonogo     .variant-tag { background:#8e44ad; }
+.variant-banner.v-ruleswitch { background: linear-gradient(135deg,#e8f7ef 0%,#c9ebd9 100%); border-color:#7cc5a0; }
+.variant-banner.v-ruleswitch .variant-tag { background:#2ea36a; }
+
+/* 기타훈련 메뉴 옵션 내 부제 */
+.menu-dropdown .menu-option small {
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin-left: 4px;
+    font-weight: 400;
+}
+
+/* ==========================================================================
    Card
    ========================================================================== */
 .reference-cards {

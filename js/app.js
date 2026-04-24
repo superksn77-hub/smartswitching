@@ -98,14 +98,67 @@ const TEST_CONFIG = {
 };
 
 /* ==========================================================================
+   TRAINING VARIANTS — 기타훈련 (근거 기반 변형)
+   ==========================================================================
+   standard  : 일반 스위칭마스터 (match-to-sample; Monsell 2003, Miyake 2000)
+   inverse   : 규칙 역전 — 우세 반응 억제 (Diamond 2013, Inhibition)
+   nback     : 1-Back 작업기억 (Kirchner 1958; Jaeggi et al. 2008, PNAS)
+   gonogo    : Go/No-Go — 반응 억제 (Verbruggen & Logan 2008)
+   ruleswitch: 과제 전환 — 규칙이 trial마다 변경 (Monsell 2003, Set-Shifting)
+*/
+const TRAINING_VARIANTS = {
+    standard: {
+        label: '표준 스위칭',
+        tag: '표준',
+        instruction: '다음 중 아래의 그림과 숫자가 위의 그림과 숫자와 일치하면 <span class="true-text">True</span>(<span class="key-hint">→</span>), 일치하지 않으면 <span class="false-text">False</span>(<span class="key-hint">←</span>)를 클릭하세요.',
+        showReference: true,
+        evidence: 'Match-to-sample / Task-switching (Monsell, 2003; Miyake et al., 2000)'
+    },
+    inverse: {
+        label: '역규칙 — 반대로 훈련',
+        tag: '🔁 역규칙',
+        instruction: '⚠ <b>규칙이 반대입니다.</b> 아래 카드가 위 참조와 <b class="false-text">일치하지 않으면 True</b>(→), <b class="true-text">일치하면 False</b>(←). 평소 반응을 억제하세요.',
+        showReference: true,
+        evidence: 'Prepotent Response Inhibition (Diamond, 2013 — Executive Functions 3-factor model)'
+    },
+    nback: {
+        label: 'N-Back — 작업기억',
+        tag: '🧠 1-Back',
+        instruction: '<b>1번 전 카드와 같으면</b> <span class="true-text">True</span>(→), <b>다르면</b> <span class="false-text">False</span>(←). 첫 카드는 자동으로 넘어갑니다. 그림과 숫자 둘 다 같아야 합니다.',
+        showReference: false,
+        evidence: 'N-Back WM training (Kirchner, 1958; Jaeggi et al., 2008, PNAS — 작업기억·유동성 지능)'
+    },
+    gonogo: {
+        label: 'Go/No-Go — 반응 억제',
+        tag: '🛑 Go/No-Go',
+        instruction: '카드가 나타나면 <span class="true-text">True</span>(→)만 누르세요. 단, <b>✕ 표시 카드</b>가 나오면 <b>아무 것도 누르지 말고 기다리세요</b>. (각 시행 1.5초)',
+        showReference: false,
+        evidence: 'Go/No-Go paradigm — 반응 억제 (Verbruggen & Logan, 2008; Shalev et al., 2007 — ADHD 주의훈련)'
+    },
+    ruleswitch: {
+        label: '규칙전환 — 과제 전환',
+        tag: '🔀 규칙전환',
+        instruction: '상단 <b>현재 규칙</b>에 따라 판단하세요 — <b>🖼 그림</b> 규칙: 아래 카드의 그림이 참조에 있으면 True / <b>🔢 숫자</b> 규칙: 숫자가 참조에 있으면 True. 규칙은 예고 없이 바뀝니다.',
+        showReference: true,
+        evidence: 'Task-switching paradigm (Monsell, 2003) — 인지 유연성 훈련의 핵심'
+    }
+};
+
+/* ==========================================================================
    GAME STATE & LOGIC
    ========================================================================== */
 class SmartSwitchingGame {
     constructor() {
         this.mode = 'training';           // 'training' | 'test'
+        this.trainingVariant = 'standard';// standard|inverse|nback|gonogo|ruleswitch
         this.currentLevel = 0;            // index into LEVELS
         this.referencePairs = [];         // [{icon, number}, ...]
         this.currentQuestion = null;      // {icon, number, isMatch}
+        this.nbackHistory = [];           // for N-Back variant
+        this.currentRule = null;          // for ruleswitch: 'icon' | 'number'
+        this.gonogoTimer = null;          // for gonogo variant
+        this.gonogoDeadline = 0;
+        this.gonogoTickTimer = null;
         this.stats = {
             startTime: 0,
             lastAnswerTime: 0,
@@ -152,6 +205,7 @@ class SmartSwitchingGame {
         const menus = [
             { item: 'menuFile',  drop: 'dropdownFile'  },
             { item: 'menuLevel', drop: 'dropdownLevel' },
+            { item: 'menuOther', drop: 'dropdownOther' },
             { item: 'menuTest',  drop: 'dropdownTest'  }
         ];
         menus.forEach(m => {
@@ -487,23 +541,86 @@ class SmartSwitchingGame {
 
     /* ---------------- Training Mode ---------------- */
     startTraining(levelIdx) {
+        // Entering the Level menu resets variant to standard.
+        // Other-Training variants enter via startOtherTraining().
+        this.trainingVariant = 'standard';
+        this._runTraining(levelIdx);
+    }
+
+    /**
+     * Other-Training entry point — 기타훈련 변형 시작.
+     * 기존 startTraining 인프라를 재사용하며, variant 에 따라 UI/규칙을 조정.
+     */
+    startOtherTraining(variantKey) {
+        if (!TRAINING_VARIANTS[variantKey]) return;
+        this.trainingVariant = variantKey;
+        // N-Back / Go-NoGo 는 고정 난이도부터 시작해도 안전.
+        // 현재 레벨을 유지하되, 레벨 0 미만이면 0 으로.
+        const lvl = Math.max(0, Math.min(this.currentLevel, LEVELS.length - 1));
+        this._runTraining(lvl);
+    }
+
+    _runTraining(levelIdx) {
         this.mode = 'training';
         this.currentLevel = levelIdx;
         this.trainingDone = false;
         this.attempts = [];
+        this.nbackHistory = [];
+        this.currentRule = null;
+        this._clearGonogoTimer();
         this.resetStats();
         this.streak = 0;
         document.getElementById('questionCard').classList.remove('locked');
         this.updateComboBadge();
         this.updateProgressBar();
+
+        const variant = TRAINING_VARIANTS[this.trainingVariant] || TRAINING_VARIANTS.standard;
+        // Instruction text per variant
+        const instrText = document.getElementById('instructionsText');
+        if (instrText) instrText.innerHTML = variant.instruction;
         document.getElementById('instructions').style.display = 'block';
         document.getElementById('questionArea').style.display = 'flex';
         document.getElementById('testArea').style.display = 'none';
         document.getElementById('printBtn').style.display = 'none';
-        // Show fun elements for training mode
         document.getElementById('mascot').style.display = 'block';
         document.getElementById('progressWrap').style.display = 'block';
-        this.generateReference();
+
+        // Variant banner
+        const banner = document.getElementById('variantBanner');
+        if (banner) {
+            if (this.trainingVariant === 'standard') {
+                banner.style.display = 'none';
+                banner.className = 'variant-banner';
+            } else {
+                banner.style.display = 'flex';
+                banner.className = 'variant-banner v-' + this.trainingVariant;
+                document.getElementById('variantTag').textContent = variant.tag;
+            }
+        }
+
+        // Reference cards visibility per variant
+        const refWrap = document.getElementById('referenceCards');
+        if (variant.showReference) {
+            refWrap.style.display = '';
+            this.generateReference();
+        } else {
+            refWrap.style.display = 'none';
+            refWrap.innerHTML = '';
+            this.referencePairs = [];
+        }
+
+        // For ruleswitch, initialize rule
+        if (this.trainingVariant === 'ruleswitch') {
+            this.currentRule = Math.random() < 0.5 ? 'icon' : 'number';
+            this._updateRuleBannerText();
+        } else {
+            const ruleEl = document.getElementById('variantRule');
+            if (ruleEl && this.trainingVariant !== 'standard') {
+                // Show evidence badge for non-rule variants
+                ruleEl.innerHTML = '<small>' + variant.evidence + '</small>';
+            }
+        }
+
         this.nextQuestion();
         this.startTimer();
     }
@@ -616,22 +733,22 @@ class SmartSwitchingGame {
     }
 
     nextQuestion() {
-        // Rule: icon MUST always match at least one reference card.
-        // True  = icon AND number match an existing reference pair
-        // False = icon matches a reference icon, but number does NOT match any pair with that icon
+        this._clearGonogoTimer();
+        if (this.trainingVariant === 'nback')      return this._nextNBackQuestion();
+        if (this.trainingVariant === 'gonogo')     return this._nextGoNoGoQuestion();
+        if (this.trainingVariant === 'ruleswitch') return this._nextRuleSwitchQuestion();
+
+        // default (standard / inverse — 동일 생성, 평가만 다름)
         const pickRef = this.referencePairs[Math.floor(Math.random() * this.referencePairs.length)];
         const icon = pickRef.icon;
         let number, isMatch;
         if (Math.random() < 0.5) {
-            // True
             number = pickRef.number;
             isMatch = true;
         } else {
-            // False - same icon, different number than any ref pair having this icon
             const forbidden = new Set(
                 this.referencePairs.filter(p => p.icon === icon).map(p => p.number)
             );
-            // Build candidate number pool (1..30, excluding forbidden)
             const pool = [];
             for (let n = 1; n <= 30; n++) if (!forbidden.has(n)) pool.push(n);
             number = pool[Math.floor(Math.random() * pool.length)];
@@ -640,6 +757,152 @@ class SmartSwitchingGame {
         this.currentQuestion = { icon, number, isMatch };
         this.renderQuestion();
         this.stats.lastAnswerTime = Date.now();
+    }
+
+    /* ---------- Variant: N-Back (1-back) ---------- */
+    _nextNBackQuestion() {
+        // Pool: union of ICON_KEYS sampled small + numbers 1..9
+        const icons = [...ICON_KEYS];
+        const prev = this.nbackHistory[this.nbackHistory.length - 1];
+
+        let icon, number, isMatch;
+        if (prev && Math.random() < 0.45) {
+            // Match: same icon + same number as 1-back
+            icon = prev.icon;
+            number = prev.number;
+            isMatch = true;
+        } else {
+            icon = icons[Math.floor(Math.random() * icons.length)];
+            number = 1 + Math.floor(Math.random() * 9);
+            isMatch = !!(prev && prev.icon === icon && prev.number === number);
+        }
+        const isFirst = !prev;
+        this.currentQuestion = { icon, number, isMatch, isFirst };
+        this.nbackHistory.push({ icon, number });
+        if (this.nbackHistory.length > 6) this.nbackHistory.shift();
+        this.renderQuestion();
+        this.stats.lastAnswerTime = Date.now();
+
+        // 첫 카드는 비교 대상이 없으므로 2초 후 자동 진행 (점수는 안 올림)
+        if (isFirst) {
+            setTimeout(() => {
+                if (this.trainingDone) return;
+                this.nextQuestion();
+            }, 1400);
+        }
+    }
+
+    /* ---------- Variant: Go/No-Go ---------- */
+    _nextGoNoGoQuestion() {
+        // No-Go 자극 = 'xMark'. 약 25% 확률로 등장.
+        const isGo = Math.random() >= 0.25;
+        const icon = isGo
+            ? (ICON_KEYS.filter(k => k !== 'xMark')[Math.floor(Math.random() * (ICON_KEYS.length - 1))])
+            : 'xMark';
+        const number = 1 + Math.floor(Math.random() * 9);
+        this.currentQuestion = { icon, number, isGo };
+        this.renderQuestion();
+        this.stats.lastAnswerTime = Date.now();
+
+        // 1.5초 deadline — 타임아웃이면 "withhold" 로 채점
+        const WINDOW = 1500;
+        this.gonogoDeadline = Date.now() + WINDOW;
+        this._startGonogoTick();
+        this.gonogoTimer = setTimeout(() => {
+            if (this.trainingDone) return;
+            this._resolveGonogo(null); // no response
+        }, WINDOW);
+    }
+
+    _startGonogoTick() {
+        this._stopGonogoTick();
+        const timerEl = document.getElementById('variantTimer');
+        if (!timerEl) return;
+        const tick = () => {
+            const remain = Math.max(0, this.gonogoDeadline - Date.now());
+            timerEl.textContent = '⏱ ' + (remain / 1000).toFixed(1) + 's';
+        };
+        tick();
+        this.gonogoTickTimer = setInterval(tick, 80);
+    }
+
+    _stopGonogoTick() {
+        if (this.gonogoTickTimer) {
+            clearInterval(this.gonogoTickTimer);
+            this.gonogoTickTimer = null;
+        }
+        const timerEl = document.getElementById('variantTimer');
+        if (timerEl) timerEl.textContent = '';
+    }
+
+    _clearGonogoTimer() {
+        if (this.gonogoTimer) {
+            clearTimeout(this.gonogoTimer);
+            this.gonogoTimer = null;
+        }
+        this._stopGonogoTick();
+    }
+
+    _resolveGonogo(userResponded) {
+        // userResponded: true(응답함) / null(withhold)
+        this._clearGonogoTimer();
+        if (!this.currentQuestion || this.trainingDone) return;
+        const shouldGo = this.currentQuestion.isGo;
+        // Go 자극 + 응답 = correct / No-Go 자극 + withhold = correct
+        const correct = (shouldGo && userResponded === true) || (!shouldGo && userResponded === null);
+        this._applyAnswerResult(correct);
+    }
+
+    /* ---------- Variant: Rule-Switch ---------- */
+    _nextRuleSwitchQuestion() {
+        // 약 40% 확률로 규칙 전환 (switch cost 유발)
+        if (Math.random() < 0.4) {
+            this.currentRule = (this.currentRule === 'icon') ? 'number' : 'icon';
+        }
+        this._updateRuleBannerText();
+
+        const pickRef = this.referencePairs[Math.floor(Math.random() * this.referencePairs.length)];
+        const refIcons = new Set(this.referencePairs.map(p => p.icon));
+        const refNums  = new Set(this.referencePairs.map(p => p.number));
+
+        let icon, number;
+        // 50% 확률로 "현재 규칙 기준 일치" 케이스
+        const matchCase = Math.random() < 0.5;
+        if (this.currentRule === 'icon') {
+            icon = matchCase ? pickRef.icon : this._pickIconNotIn(refIcons);
+            // 숫자는 독립적으로 무작위 (간섭 자극)
+            number = 1 + Math.floor(Math.random() * 30);
+        } else {
+            number = matchCase ? pickRef.number : this._pickNumberNotIn(refNums);
+            icon = ICON_KEYS[Math.floor(Math.random() * ICON_KEYS.length)];
+        }
+        const iconMatch = refIcons.has(icon);
+        const numberMatch = refNums.has(number);
+        const isMatch = this.currentRule === 'icon' ? iconMatch : numberMatch;
+        this.currentQuestion = { icon, number, isMatch, rule: this.currentRule };
+        this.renderQuestion();
+        this.stats.lastAnswerTime = Date.now();
+    }
+
+    _pickIconNotIn(excl) {
+        const pool = ICON_KEYS.filter(k => !excl.has(k));
+        return pool.length ? pool[Math.floor(Math.random() * pool.length)] : ICON_KEYS[0];
+    }
+    _pickNumberNotIn(excl) {
+        const pool = [];
+        for (let n = 1; n <= 30; n++) if (!excl.has(n)) pool.push(n);
+        return pool.length ? pool[Math.floor(Math.random() * pool.length)] : 1;
+    }
+
+    _updateRuleBannerText() {
+        const el = document.getElementById('variantRule');
+        if (!el) return;
+        if (this.trainingVariant !== 'ruleswitch') return;
+        if (this.currentRule === 'icon') {
+            el.innerHTML = '<b class="rule-icon">🖼 그림 규칙</b> — 그림이 참조에 있으면 True';
+        } else {
+            el.innerHTML = '<b class="rule-number">🔢 숫자 규칙</b> — 숫자가 참조에 있으면 True';
+        }
     }
 
     renderQuestion() {
@@ -651,7 +914,25 @@ class SmartSwitchingGame {
     answer(userSaidTrue) {
         if (!this.currentQuestion) return;
         if (this.trainingDone) return; // Stop accepting input after target reached
-        const correct = (userSaidTrue === this.currentQuestion.isMatch);
+
+        // N-Back: skip 채점 on very first card (no previous to compare)
+        if (this.trainingVariant === 'nback' && this.currentQuestion.isFirst) return;
+
+        // Go/No-Go: any button press = "responded"
+        if (this.trainingVariant === 'gonogo') {
+            return this._resolveGonogo(true);
+        }
+
+        let correct;
+        if (this.trainingVariant === 'inverse') {
+            correct = (userSaidTrue === !this.currentQuestion.isMatch);
+        } else {
+            correct = (userSaidTrue === this.currentQuestion.isMatch);
+        }
+        this._applyAnswerResult(correct);
+    }
+
+    _applyAnswerResult(correct) {
         const now = Date.now();
         const deltaMs = now - this.stats.lastAnswerTime;
         const rt = deltaMs / 1000;
@@ -703,6 +984,7 @@ class SmartSwitchingGame {
             // Lock training: no more questions, no more input
             this.trainingDone = true;
             this.stopTimer();
+            this._clearGonogoTimer();
             this.celebrationBurst();
             // Hide question card so user can't click further
             const qc = document.getElementById('questionCard');
@@ -711,7 +993,9 @@ class SmartSwitchingGame {
         } else {
             setTimeout(() => {
                 if (this.trainingDone) return;
-                this.generateReference();
+                const variant = TRAINING_VARIANTS[this.trainingVariant] || TRAINING_VARIANTS.standard;
+                // 참조 카드를 쓰는 변형(standard/inverse/ruleswitch)만 매 문항마다 새로 생성
+                if (variant.showReference) this.generateReference();
                 this.nextQuestion();
             }, 350);
         }
@@ -831,8 +1115,10 @@ class SmartSwitchingGame {
         document.getElementById('gameArea').style.display = 'flex';
         document.getElementById('statsBar').style.display = 'flex';
         document.getElementById('fxCanvas').style.display = 'block';
-        // Clean restart of the same training level (mascot/progress restored in startTraining)
-        this.startTraining(this.currentLevel);
+        // 같은 variant 로 재시작 (기타훈련 중이었으면 기타훈련 유지)
+        const v = this.trainingVariant || 'standard';
+        if (v !== 'standard') this.startOtherTraining(v);
+        else this.startTraining(this.currentLevel);
     }
 
     printReport() {
@@ -898,6 +1184,7 @@ class SmartSwitchingGame {
         const secs = Math.floor((totalMs % 60000) / 1000);
         const errRate = this.stats.answers ? (this.stats.wrong / this.stats.answers * 100) : 0;
         const avgTime = this.stats.answers ? (this.stats.totalTime / this.stats.answers / 1000) : 0;
+        const variant = TRAINING_VARIANTS[this.trainingVariant] || TRAINING_VARIANTS.standard;
         return {
             levelName: levelInfo.name,
             levelCount: levelInfo.count,
@@ -907,13 +1194,17 @@ class SmartSwitchingGame {
             errors: this.stats.wrong,
             correct: this.stats.correct,
             errRate: errRate.toFixed(2),
-            avgTime: avgTime.toFixed(2)
+            avgTime: avgTime.toFixed(2),
+            variantKey: this.trainingVariant,
+            variantLabel: variant.label,
+            variantEvidence: variant.evidence
         };
     }
 
     renderMetrics() {
         const m = this.computeMetrics();
-        document.getElementById('rptLevel').textContent = m.levelName + ' (' + m.levelCount + '개)';
+        const variantSuffix = (m.variantKey && m.variantKey !== 'standard') ? ` · ${m.variantLabel}` : '';
+        document.getElementById('rptLevel').textContent = m.levelName + ' (' + m.levelCount + '개)' + variantSuffix;
         document.getElementById('rptTarget').textContent = m.targetPoint;
         document.getElementById('rptTries').textContent = m.totalTries;
         document.getElementById('rptCorrect').textContent = m.correct;
@@ -1248,6 +1539,8 @@ class SmartSwitchingGame {
         return `당신은 아동·청소년 인지발달 전문가이자 임상심리학자입니다. 다음은 '스마트 스위칭 인지 훈련'(시각-숫자 매칭 과제)을 수행한 결과입니다. 부모/보호자 또는 임상 클라이언트에게 제공할 리포트 형식의 한국어 분석을 작성해 주세요.
 
 [훈련 결과 데이터]
+- 훈련 유형: ${m.variantLabel}
+- 근거 문헌: ${m.variantEvidence}
 - 훈련 단계: ${m.levelName} (참조 자극 ${m.levelCount}개)
 - 목표 점수: ${m.targetPoint}점 (달성)
 - 총 소요 시간: ${m.totalTimeStr}
@@ -1346,8 +1639,13 @@ ${err >= 15 ? '- **오류율 ' + m.errRate + '%** — 충동적 반응 억제(In
     startTest(type) {
         this.mode = 'test';
         this.testType = type;
+        this.trainingVariant = 'standard';
+        this._clearGonogoTimer();
         this.resetStats();
         this.streak = 0;
+        // Hide variant banner during test
+        const banner = document.getElementById('variantBanner');
+        if (banner) banner.style.display = 'none';
         document.getElementById('mascot').style.display = 'none';
         document.getElementById('progressWrap').style.display = 'none';
         document.getElementById('comboBadge').style.display = 'none';
@@ -1747,8 +2045,13 @@ ${err >= 15 ? '- **오류율 ' + m.errRate + '%** — 충동적 반응 억제(In
 
     /* ---------------- File Menu Actions ---------------- */
     newGame() {
-        if (this.mode === 'training') this.startTraining(this.currentLevel);
-        else if (this.testType) this.startTest(this.testType);
+        if (this.mode === 'training') {
+            const v = this.trainingVariant || 'standard';
+            if (v !== 'standard') this.startOtherTraining(v);
+            else this.startTraining(this.currentLevel);
+        } else if (this.testType) {
+            this.startTest(this.testType);
+        }
     }
 
     saveResults() {

@@ -92,6 +92,13 @@ body::before {
     color: #fff;
 }
 
+.menu-item.is-disabled,
+.menu-item.is-disabled:hover {
+    pointer-events: none;
+    background: transparent;
+    color: var(--text-primary);
+}
+
 .menu-dropdown {
     display: none;
     position: absolute;

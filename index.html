@@ -444,7 +444,25 @@
     <!-- 기기 인증 (앱 로드 전에 실행) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="device-auth.js?v=10"></script>
+    <script src="device-auth.js?v=11"></script>
+
+    <!-- 버전 토글 적용: 재활 버전이면 기타훈련 메뉴 비활성(외관은 동일) -->
+    <script>
+    (function () {
+        function applyVersion(version) {
+            var menu = document.getElementById('menuOther');
+            if (!menu) return;
+            menu.style.display = '';                         // 항상 노출 (브레인과 동일)
+            menu.classList.toggle('is-disabled', version === 'rehab');
+        }
+        // 1) 기본은 두뇌 버전 — Firebase 응답이 늦어도 메뉴 활성
+        applyVersion((window.SmartSwitchConfig && window.SmartSwitchConfig.version) || 'brain');
+        // 2) device-auth가 Firebase에서 설정을 받으면 이벤트로 갱신
+        window.addEventListener('smartswitch:config', function (e) {
+            applyVersion(e && e.detail && e.detail.version);
+        });
+    })();
+    </script>
 
     <script src="js/client.js?v=1"></script>
     <script src="js/dashboard.js?v=1"></script>

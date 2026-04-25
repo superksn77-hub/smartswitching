@@ -19,7 +19,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="application-name" content="SWITCHING MASTER">
 
-    <link rel="stylesheet" href="css/style.css?v=11">
+    <link rel="stylesheet" href="css/style.css?v=12">
     <link rel="stylesheet" href="device-gate.css?v=2">
 </head>
 <body>
@@ -33,6 +33,7 @@
                 <div class="menu-option" onclick="ClientManager.showNewClientModal()">신규 클라이언트 등록</div>
                 <div class="menu-option" onclick="ClientManager.showLoadClientModal()">클라이언트 불러오기</div>
                 <div class="menu-option" onclick="Dashboard.show()">대시보드</div>
+                <div class="menu-option" onclick="ClientManager.showBackupModal()">📦 백업 / 복원 (다른 컴퓨터로 옮기기)</div>
                 <div class="menu-option client-logout-option" id="clientLogoutItem" onclick="ClientManager.clearActiveClient()" style="display:none;">로그아웃</div>
                 <div class="menu-divider"></div>
                 <div class="menu-option" onclick="game.saveResults()">Save Results</div>
@@ -464,7 +465,7 @@
     })();
     </script>
 
-    <script src="js/client.js?v=1"></script>
+    <script src="js/client.js?v=2"></script>
     <script src="js/dashboard.js?v=1"></script>
     <script src="js/app.js?v=10"></script>
 

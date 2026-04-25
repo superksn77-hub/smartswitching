@@ -130,6 +130,142 @@ const ClientManager = (() => {
     return JSON.parse(localStorage.getItem(`sswt_client_${clientId}_sessions`) || '[]');
   }
 
+  // ==================== 백업 (다른 컴퓨터로 이전) ====================
+  // 모든 클라이언트 + 세션을 JSON 파일로 내보냄
+  function exportAll() {
+    const clients = getClients();
+    const data = {
+      app: 'switching-master',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      clients: clients.map(c => ({
+        ...c,
+        sessions: getClientSessions(c.id)
+      }))
+    };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `switching-master-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { clientCount: clients.length, sessionCount: data.clients.reduce((s, c) => s + (c.sessions?.length || 0), 0) };
+  }
+
+  // 단일 클라이언트만 내보내기
+  function exportClient(clientId) {
+    const c = getClients().find(c => c.id === clientId);
+    if (!c) return null;
+    const data = {
+      app: 'switching-master',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      clients: [{ ...c, sessions: getClientSessions(c.id) }]
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = c.name.replace(/[^\w가-힣\-]/g, '_');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `switching-master-${safeName}-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { name: c.name, sessions: data.clients[0].sessions.length };
+  }
+
+  /**
+   * 백업 JSON 가져오기.
+   * mode:
+   *   'merge'    — 동일 ID는 세션을 합치고 중복 제거(date 기준)
+   *   'replace'  — 동일 ID 클라이언트의 세션 전체 덮어쓰기
+   *   'addNew'   — 동일 ID는 건너뛰고 새 ID로 추가
+   * @returns {{added,merged,skipped,sessionsAdded,errors}}
+   */
+  function importAll(jsonText, mode = 'merge') {
+    const result = { added: 0, merged: 0, skipped: 0, sessionsAdded: 0, errors: [] };
+    let data;
+    try { data = JSON.parse(jsonText); }
+    catch (e) { result.errors.push('JSON 파싱 실패: ' + e.message); return result; }
+
+    if (!data || data.app !== 'switching-master' || !Array.isArray(data.clients)) {
+      result.errors.push('스위칭마스터 백업 파일이 아닙니다.');
+      return result;
+    }
+
+    const existingClients = getClients();
+    const existingMap = new Map(existingClients.map(c => [c.id, c]));
+
+    data.clients.forEach((bc, idx) => {
+      // 형식 검증
+      if (!bc || typeof bc.id !== 'string' || typeof bc.name !== 'string' || !bc.name.trim()) {
+        result.errors.push(`#${idx + 1} 항목: 형식 오류, 건너뜀`);
+        return;
+      }
+      const sessions = Array.isArray(bc.sessions) ? bc.sessions : [];
+      const cleanClient = {
+        id: bc.id,
+        name: String(bc.name).slice(0, 20),
+        gender: ['남', '여'].includes(bc.gender) ? bc.gender : '남',
+        age: Math.max(1, Math.min(120, parseInt(bc.age) || 1)),
+        createdAt: bc.createdAt || new Date().toISOString()
+      };
+
+      const existing = existingMap.get(bc.id);
+      if (existing) {
+        // 충돌
+        if (mode === 'addNew') {
+          // 새 ID로 복사
+          cleanClient.id = generateId();
+          existingClients.push(cleanClient);
+          if (sessions.length) {
+            localStorage.setItem(`sswt_client_${cleanClient.id}_sessions`, JSON.stringify(sessions));
+            result.sessionsAdded += sessions.length;
+          }
+          result.added++;
+        } else if (mode === 'replace') {
+          // 메타+세션 교체
+          Object.assign(existing, cleanClient);
+          localStorage.setItem(`sswt_client_${cleanClient.id}_sessions`, JSON.stringify(sessions));
+          result.sessionsAdded += sessions.length;
+          result.merged++;
+        } else { // merge
+          const cur = getClientSessions(cleanClient.id);
+          const seen = new Set(cur.map(s => s.date));
+          let newOnes = 0;
+          sessions.forEach(s => {
+            if (s && s.date && !seen.has(s.date)) {
+              cur.push(s); seen.add(s.date); newOnes++;
+            }
+          });
+          cur.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+          if (cur.length > 500) cur.splice(0, cur.length - 500);
+          localStorage.setItem(`sswt_client_${cleanClient.id}_sessions`, JSON.stringify(cur));
+          result.sessionsAdded += newOnes;
+          result.merged++;
+        }
+      } else {
+        existingClients.push(cleanClient);
+        if (sessions.length) {
+          localStorage.setItem(`sswt_client_${cleanClient.id}_sessions`, JSON.stringify(sessions));
+          result.sessionsAdded += sessions.length;
+        }
+        result.added++;
+      }
+    });
+
+    saveClients(existingClients);
+    updateClientDisplay();
+    return result;
+  }
+
   // ==================== 모달 UI ====================
   function showNewClientModal() {
     removeModal();
@@ -217,6 +353,7 @@ const ClientManager = (() => {
               </div>
               <div class="client-list-actions">
                 ${isActive ? '<span class="client-active-badge">현재</span>' : ''}
+                <button class="client-export-btn" data-id="${esc(c.id)}" title="이 클라이언트만 내보내기">⬇</button>
                 <button class="client-delete-btn" data-id="${esc(c.id)}" title="삭제">🗑️</button>
               </div>
             </div>
@@ -234,6 +371,7 @@ const ClientManager = (() => {
         </div>
         <div class="client-modal-footer">
           <button class="client-guest-btn" id="clientGuestBtn">게스트 모드</button>
+          <button class="client-backup-btn" id="clientBackupBtn" title="다른 컴퓨터로 데이터 옮기기">📦 백업/복원</button>
           <button class="client-new-btn" id="clientNewBtn">+ 신규 등록</button>
         </div>
       </div>
@@ -259,12 +397,29 @@ const ClientManager = (() => {
       });
     });
 
+    document.querySelectorAll('.client-export-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const r = exportClient(btn.dataset.id);
+        if (r) {
+          // Brief inline confirmation
+          const orig = btn.textContent;
+          btn.textContent = '✓';
+          btn.classList.add('exported');
+          setTimeout(() => { btn.textContent = orig; btn.classList.remove('exported'); }, 1200);
+        }
+      });
+    });
+
     document.getElementById('clientGuestBtn').addEventListener('click', () => {
       clearActiveClient();
       removeModal();
     });
     document.getElementById('clientNewBtn').addEventListener('click', () => {
       showNewClientModal();
+    });
+    document.getElementById('clientBackupBtn').addEventListener('click', () => {
+      showBackupModal();
     });
   }
 
@@ -297,6 +452,104 @@ const ClientManager = (() => {
     });
   }
 
+  // ==================== 백업/복원 모달 ====================
+  function showBackupModal() {
+    removeModal();
+    const clients = getClients();
+    const totalSessions = clients.reduce((s, c) => s + getClientSessions(c.id).length, 0);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'clientModal';
+    overlay.className = 'client-modal';
+    overlay.innerHTML = `
+      <div class="client-modal-box client-modal-wide">
+        <div class="client-modal-header">
+          <h2>📦 데이터 백업 / 복원</h2>
+          <button class="client-modal-close" id="clientModalClose">&times;</button>
+        </div>
+        <div class="backup-body">
+          <div class="backup-stats">
+            <div class="backup-stat"><div class="backup-stat-num">${clients.length}</div><div class="backup-stat-lbl">클라이언트</div></div>
+            <div class="backup-stat"><div class="backup-stat-num">${totalSessions}</div><div class="backup-stat-lbl">총 세션</div></div>
+          </div>
+
+          <div class="backup-section">
+            <h3>📤 내보내기 (이 컴퓨터 → 파일)</h3>
+            <p class="backup-desc">현재 컴퓨터의 모든 클라이언트 데이터를 JSON 파일로 저장합니다. USB·이메일·클라우드로 옮긴 뒤 다른 컴퓨터에서 복원할 수 있습니다.</p>
+            <button class="backup-btn backup-btn-primary" id="backupExportAllBtn" ${clients.length === 0 ? 'disabled' : ''}>
+              💾 전체 백업 다운로드
+            </button>
+          </div>
+
+          <div class="backup-section">
+            <h3>📥 복원하기 (파일 → 이 컴퓨터)</h3>
+            <p class="backup-desc">다른 컴퓨터에서 내보낸 JSON 파일을 가져옵니다. 동일한 클라이언트가 있으면 어떻게 처리할지 선택할 수 있습니다.</p>
+            <div class="backup-mode-row">
+              <label class="backup-radio">
+                <input type="radio" name="backupMode" value="merge" checked>
+                <span><b>병합</b> — 같은 클라이언트의 새 세션만 추가 <small>(권장)</small></span>
+              </label>
+              <label class="backup-radio">
+                <input type="radio" name="backupMode" value="replace">
+                <span><b>덮어쓰기</b> — 동일 클라이언트의 데이터를 백업 파일로 교체</span>
+              </label>
+              <label class="backup-radio">
+                <input type="radio" name="backupMode" value="addNew">
+                <span><b>새 클라이언트로</b> — 같은 ID도 별개 신규로 추가</span>
+              </label>
+            </div>
+            <input type="file" id="backupImportFile" accept=".json,application/json" style="display:none;">
+            <button class="backup-btn backup-btn-secondary" id="backupImportBtn">
+              📂 백업 파일 선택해서 복원
+            </button>
+          </div>
+
+          <div class="backup-result" id="backupResult"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.classList.add('show'), 30);
+
+    document.getElementById('clientModalClose').addEventListener('click', removeModal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) removeModal(); });
+
+    document.getElementById('backupExportAllBtn').addEventListener('click', () => {
+      const r = exportAll();
+      showBackupResult(`✅ 백업 다운로드 완료 — 클라이언트 ${r.clientCount}명 · 세션 ${r.sessionCount}건`, 'ok');
+    });
+
+    const fileInput = document.getElementById('backupImportFile');
+    document.getElementById('backupImportBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const mode = document.querySelector('input[name="backupMode"]:checked')?.value || 'merge';
+      const reader = new FileReader();
+      reader.onload = () => {
+        const r = importAll(String(reader.result || ''), mode);
+        if (r.errors.length) {
+          showBackupResult('⚠ ' + r.errors.join(' · '), 'fail');
+        } else {
+          const summary = `✅ 복원 완료 — 신규 ${r.added}명 · 병합/교체 ${r.merged}명 · 세션 ${r.sessionsAdded}건 추가`;
+          showBackupResult(summary, 'ok');
+          // Refresh stats
+          setTimeout(() => showBackupModal(), 1800);
+        }
+        fileInput.value = ''; // reset for re-pick
+      };
+      reader.onerror = () => showBackupResult('⚠ 파일 읽기 실패', 'fail');
+      reader.readAsText(file);
+    });
+  }
+
+  function showBackupResult(text, kind) {
+    const el = document.getElementById('backupResult');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'backup-result show ' + (kind === 'ok' ? 'ok' : 'fail');
+  }
+
   function removeModal() {
     const modal = document.getElementById('clientModal');
     if (modal) {
@@ -324,7 +577,11 @@ const ClientManager = (() => {
     getClientSessions,
     showNewClientModal,
     showLoadClientModal,
-    updateClientDisplay
+    updateClientDisplay,
+    exportAll,
+    exportClient,
+    importAll,
+    showBackupModal
   };
 })();
 

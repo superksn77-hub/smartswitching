@@ -581,11 +581,31 @@
       try {
         const snap = await db.collection(COLLECTION).doc(deviceId).get();
         if (!snap.exists) return null;
-        return extractAppStatus(snap.data());
+        const data = snap.data();
+        applyAppConfig(data);
+        return extractAppStatus(data);
       } catch (e) {}
     }
     const local = localRead();
-    return local[deviceId] ? extractAppStatus(local[deviceId]) : null;
+    if (local[deviceId]) {
+      applyAppConfig(local[deviceId]);
+      return extractAppStatus(local[deviceId]);
+    }
+    return null;
+  }
+
+  // ── 앱 설정(appConfig) 적용 — 관리자 대시보드에서 토글한 버전을 윈도우에 노출 ──
+  function applyAppConfig(data) {
+    try {
+      const cfg = (data && data.appConfig && data.appConfig.smartswitch) || {};
+      const version = (cfg.version === 'rehab') ? 'rehab' : 'brain';  // 기본=brain
+      window.SmartSwitchConfig = Object.assign(window.SmartSwitchConfig || {}, {
+        version: version,
+      });
+      try {
+        window.dispatchEvent(new CustomEvent('smartswitch:config', { detail: { version: version } }));
+      } catch (_) {}
+    } catch (_) {}
   }
 
   async function registerDevice(deviceId, userName) {
